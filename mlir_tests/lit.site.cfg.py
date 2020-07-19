@@ -25,7 +25,7 @@ import lit.llvm
 runfile_srcdir = os.environ['TEST_SRCDIR']
 tfrt_workspace = os.environ['TEST_WORKSPACE']
 
-if platform.system() != 'Linux':
+if platform.system() != 'Linux' and platform.system() != 'Darwin':
   sys.exit('Currently TFRT only supports lit tests on Linux.')
 
 # pylint: disable=undefined-variable

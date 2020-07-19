@@ -148,7 +148,7 @@ static Chain OpAttrsSetString(Argument<OpAttrs> attrs, StringAttribute key,
 
 static llvm::Expected<TensorHandle> ConstStringTensor(
     ArrayAttr shape, AggregateAttr value, const ExecutionContext &exec_ctx) {
-  TensorMetadata metadata(DType(DType::String), shape.GetValue<int64_t>());
+  TensorMetadata metadata(DType(DType::String), shape.GetValue<ssize_t>());
 
   auto tensor_ref =
       StringHostTensor::MakeConstructedAsyncValueRef(metadata, exec_ctx.host());
@@ -188,7 +188,7 @@ static llvm::Expected<TensorHandle> ConstDenseTensor(
 
 template <typename DType>
 static llvm::Expected<TensorHandle> CreateDenseTensor(
-    ArrayAttribute<int64_t> shape, ArrayAttribute<DType> value,
+    ArrayAttribute<ssize_t> shape, ArrayAttribute<DType> value,
     const ExecutionContext &context) {
   auto *host = context.host();
 
