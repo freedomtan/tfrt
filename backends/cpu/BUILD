@@ -66,13 +66,37 @@ tfrt_cc_library(
 )
 
 tfrt_cc_library(
+    name = "buffer_forwarding",
+    srcs = ["lib/ops/tf/buffer_forwarding.cc"],
+    hdrs = ["lib/ops/tf/buffer_forwarding.h"],
+    visibility = ["@tf_runtime//:friends"],
+    deps = [
+        "@tf_runtime//:hostcontext",
+        "@tf_runtime//:support",
+        "@tf_runtime//:tensor",
+    ],
+)
+
+tfrt_cc_library(
     name = "tf_ops",
     srcs = [
+        "lib/ops/tf/concat_op.cc",
+        "lib/ops/tf/concat_op.h",
+        "lib/ops/tf/constant_ops.cc",
+        "lib/ops/tf/constant_ops.h",
         "lib/ops/tf/cpu_ops.cc",
         "lib/ops/tf/cwise_binary_ops.cc",
         "lib/ops/tf/cwise_binary_ops.h",
         "lib/ops/tf/cwise_unary_ops.cc",
         "lib/ops/tf/cwise_unary_ops.h",
+        "lib/ops/tf/matmul_fusion_ops.cc",
+        "lib/ops/tf/matmul_fusion_ops.h",
+        "lib/ops/tf/shape_ops.cc",
+        "lib/ops/tf/shape_ops.h",
+        "lib/ops/tf/softmax_ops.cc",
+        "lib/ops/tf/softmax_ops.h",
+        "lib/ops/tf/tile_op.cc",
+        "lib/ops/tf/tile_op.h",
     ],
     hdrs = [
         "include/tfrt/cpu/ops/tf/cpu_ops.h",
@@ -80,6 +104,7 @@ tfrt_cc_library(
     alwayslink_static_registration_src = "lib/ops/tf/static_registration.cc",
     visibility = ["@tf_runtime//:friends"],
     deps = [
+        ":buffer_forwarding",
         ":core_runtime",
         ":cpu_kernels",
         "@llvm-project//llvm:Support",
@@ -96,9 +121,13 @@ tfrt_cc_library(
 tfrt_cc_library(
     name = "cpu_kernels",
     hdrs = [
+        "lib/kernels/concat_kernel.h",
         "lib/kernels/cpu_kernels.h",
         "lib/kernels/cwise_binary_kernels.h",
         "lib/kernels/cwise_unary_kernels.h",
+        "lib/kernels/matmul_kernel.h",
+        "lib/kernels/softmax_kernel.h",
+        "lib/kernels/tile_kernel.h",
     ],
     deps = [
         "@mkl_dnn//:mkldnn_single_threaded",

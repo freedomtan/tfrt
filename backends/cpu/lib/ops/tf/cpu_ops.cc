@@ -21,8 +21,13 @@
 #include "tfrt/cpu/ops/tf/cpu_ops.h"
 
 #include "../../kernels/cpu_kernels.h"
+#include "concat_op.h"
+#include "constant_ops.h"
 #include "cwise_binary_ops.h"
 #include "cwise_unary_ops.h"
+#include "matmul_fusion_ops.h"
+#include "shape_ops.h"
+#include "softmax_ops.h"
 #include "tfrt/common/compat/eigen/eigen_dtype.h"
 #include "tfrt/common/ops/tf/metadata_functions.h"
 #include "tfrt/core_runtime/op_attrs.h"
@@ -34,6 +39,7 @@
 #include "tfrt/tensor/dense_host_tensor.h"
 #include "tfrt/tensor/dense_host_tensor_view.h"
 #include "tfrt/tensor/tensor_serialize_utils.h"
+#include "tile_op.h"
 
 namespace tfrt {
 namespace {
@@ -164,7 +170,7 @@ static AsyncValueRef<DenseHostTensor> TfMeanOp(
 //===----------------------------------------------------------------------===//
 // tf.BiadAdd op
 //===----------------------------------------------------------------------===//
-
+// TODO(b/161888722) Use Eigen broadcasting instead of dispatching by rank.
 static AsyncValueRef<DenseHostTensor> TfBiasAddOp(
     const DenseHostTensor& input, const DenseHostTensor& bias,
     const TensorMetadata& output_md, const ExecutionContext& exec_ctx) {
@@ -175,14 +181,31 @@ static AsyncValueRef<DenseHostTensor> TfBiasAddOp(
   }
 
   AsyncValueRef<Chain> chain;
+  size_t input_rank = input.shape().GetRank();
   switch (input.dtype().kind()) {
     default:
       chain = EmitErrorAsync(exec_ctx, "unsupported dtype for TfBiasAddOp");
       break;
-#define DTYPE_NUMERIC(ENUM)                                   \
-  case DType::ENUM:                                           \
-    chain = cpu::BiasAdd<EigenTypeForDTypeKind<DType::ENUM>>( \
-        input, bias, output.getPointer(), exec_ctx);          \
+#define DTYPE_NUMERIC(ENUM)                                          \
+  case DType::ENUM:                                                  \
+    switch (input_rank) {                                            \
+      case 2:                                                        \
+        chain = cpu::BiasAdd<EigenTypeForDTypeKind<DType::ENUM>, 2>( \
+            input, bias, output.getPointer(), exec_ctx);             \
+        break;                                                       \
+      case 3:                                                        \
+        chain = cpu::BiasAdd<EigenTypeForDTypeKind<DType::ENUM>, 3>( \
+            input, bias, output.getPointer(), exec_ctx);             \
+        break;                                                       \
+      case 4:                                                        \
+        chain = cpu::BiasAdd<EigenTypeForDTypeKind<DType::ENUM>, 4>( \
+            input, bias, output.getPointer(), exec_ctx);             \
+        break;                                                       \
+      case 5:                                                        \
+        chain = cpu::BiasAdd<EigenTypeForDTypeKind<DType::ENUM>, 5>( \
+            input, bias, output.getPointer(), exec_ctx);             \
+        break;                                                       \
+    }                                                                \
     break;
 #include "tfrt/dtype/dtype.def"  // NOLINT
   }
@@ -208,8 +231,14 @@ void RegisterTfCpuOps(CpuOpRegistry* op_registry) {
   op_registry->AddOp("tf.BiasAdd", TFRT_CPU_OP(TfBiasAddOp),
                      CpuOpFlags::NoSideEffects);
 
+  RegisterTfConcatCpuOp(op_registry);
+  RegisterTfConstantCpuOps(op_registry);
   RegisterTfUnaryCpuOps(op_registry);
   RegisterTfBinaryCpuOps(op_registry);
+  RegisterTfShapeCpuOps(op_registry);
+  RegisterTfSofmaxCpuOps(op_registry);
+  RegisterTfMatmulFusionCpuOps(op_registry);
+  RegisterTfTileCpuOp(op_registry);
 }
 
 }  // namespace tfrt

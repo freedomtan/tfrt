@@ -43,12 +43,15 @@
 #include "tfrt/host_context/location.h"
 #include "tfrt/host_context/profiled_allocator.h"
 #include "tfrt/host_context/resource_context.h"
+#include "tfrt/host_context/value.h"
 #include "tfrt/metrics/metrics_api.h"
 #include "tfrt/support/mutex.h"
 #include "tfrt/support/string_util.h"
 #include "tfrt/tracing/tracing.h"
 
 namespace tfrt {
+// TODO(jingdong): Change const Function* to const Functino& in funciton
+// argument to conform to the style guide.
 static void RunBefFunction(HostContext* host, const Function* function);
 
 int RunBefExecutor(const RunBefConfig& run_config) {
@@ -218,23 +221,78 @@ int RunBefExecutor(const RunBefConfig& run_config) {
   return mlir::failed(source_mgr_handler.verify());
 }
 
-static void RunBefFunctionHelper(HostContext* host, const Function* function) {
+// Utility function to print the result. ValueType is either Value* or
+// RCReference<AsyncValue>.
+template <typename ValueType>
+static void PrintResult(const TypeName& type_name, const ValueType& result) {
+  if (type_name.GetName() == "i1") {
+    tfrt::outs() << result->template get<bool>();
+  } else if (type_name.GetName() == "i32") {
+    tfrt::outs() << result->template get<int32_t>();
+  } else if (type_name.GetName() == "i64") {
+    tfrt::outs() << result->template get<int64_t>();
+  } else if (type_name.GetName() == "f32") {
+    tfrt::outs() << result->template get<float>();
+  } else if (type_name.GetName() == "f64") {
+    tfrt::outs() << result->template get<double>();
+  } else {
+    tfrt::outs() << type_name.GetName() << " value";
+  }
+}
+
+static void RunSyncBefFunctionHelper(HostContext* host,
+                                     const Function* function) {
   TFRT_TRACE_KERNEL_SCOPE(StrCat("Function: ", function->name()));
-  // If the function takes arguments, then we can't run it from this driver.
-  if (!function->argument_types().empty()) {
-    tfrt::outs() << "--- Not running '" << function->name()
-                 << "' because it has arguments.\n";
+
+  llvm::SmallVector<Value, 4> results;
+  results.resize(function->result_types().size());
+
+  llvm::SmallVector<Value*, 4> result_ptrs;
+  for (auto& value : results) {
+    result_ptrs.emplace_back(&value);
+  }
+
+  // Add a ResourceContext ops/kernels to access resources. Shared across
+  // kernels in this function, but not across functions.
+  tfrt::ResourceContext resource_context;
+  // If any kernel calls RequestContext::Cancel, it will create an extra async
+  // value that's stored inside RequestContext which is destroyed only when
+  // RequestContext is destroyed.
+  RCReference<RequestContext> req_ctx =
+      tfrt::RequestContext::Create(host, &resource_context);
+  ExecutionContext exec_ctx{std::move(req_ctx)};
+
+  auto error = ExecuteSyncBEFFunction(*function, exec_ctx, /*arguments=*/{},
+                                      result_ptrs);
+
+  // Go ahead and print out the function results that we know about.
+  if (error) {
+    tfrt::outs() << "'" << function->name() << "' returned ";
+    tfrt::outs() << "<<error: " << error << ">>\n";
     tfrt::outs().flush();
-    return;
-  }
+  } else if (!results.empty()) {
+    tfrt::outs() << "'" << function->name() << "' returned ";
+    auto result_types = function->result_types();
 
-  // Skip anonymous functions.
-  if (function->name().empty()) {
-    return;
-  }
+    for (int i = 0, e = results.size(); i != e; ++i) {
+      auto type_name = result_types[i];
 
-  tfrt::outs() << "--- Running '" << function->name() << "':\n";
-  tfrt::outs().flush();
+      PrintResult(type_name, &results[i]);
+
+      // Print comma except for the last one.
+      if (i != results.size() - 1) {
+        tfrt::outs() << ',';
+      }
+    }
+
+    tfrt::outs() << '\n';
+    tfrt::outs().flush();
+  }
+}
+
+static void RunAsyncBefFunctionHelper(HostContext* host,
+                                      const Function* function) {
+  TFRT_TRACE_KERNEL_SCOPE(StrCat("Function: ", function->name()));
 
   // Kick off an execution of the function body.
   llvm::SmallVector<RCReference<AsyncValue>, 4> results;
@@ -262,20 +320,11 @@ static void RunBefFunctionHelper(HostContext* host, const Function* function) {
 
     for (int i = 0, e = results.size(); i != e; ++i) {
       auto type_name = result_types[i];
+
       if (auto* error = results[i]->GetErrorIfPresent()) {
         tfrt::outs() << "<<error: " << error->message << ">>";
-      } else if (type_name.GetName() == "i1") {
-        tfrt::outs() << results[i]->get<bool>();
-      } else if (type_name.GetName() == "i32") {
-        tfrt::outs() << results[i]->get<int32_t>();
-      } else if (type_name.GetName() == "i64") {
-        tfrt::outs() << results[i]->get<int64_t>();
-      } else if (type_name.GetName() == "f32") {
-        tfrt::outs() << results[i]->get<float>();
-      } else if (type_name.GetName() == "f64") {
-        tfrt::outs() << results[i]->get<double>();
       } else {
-        tfrt::outs() << type_name.GetName() << " value";
+        PrintResult(type_name, results[i]);
       }
 
       // Print comma except for the last one.
@@ -293,19 +342,35 @@ static void RunBefFunctionHelper(HostContext* host, const Function* function) {
   // checker work better in the face of side effecting kernels that aren't
   // properly chained together (which is useful for testing).
   host->Quiesce();
-
-  // Drop any result references before doing the leak check.
-  results.clear();
 }
 
 static void RunBefFunction(HostContext* host, const Function* function) {
+  // If the function takes arguments, then we can't run it from this driver.
+  if (!function->argument_types().empty()) {
+    tfrt::outs() << "--- Not running '" << function->name()
+                 << "' because it has arguments.\n";
+    tfrt::outs().flush();
+    return;
+  }
+
+  // Skip anonymous functions.
+  if (function->name().empty()) {
+    return;
+  }
+
   // Async value leak check before and after running the function.
   size_t before_num_values;
   if (AsyncValue::AsyncValueAllocationTrackingEnabled())
     before_num_values = AsyncValue::GetNumAsyncValueInstances();
 
   // Actually run the function.
-  RunBefFunctionHelper(host, function);
+  tfrt::outs() << "--- Running '" << function->name() << "':\n";
+  tfrt::outs().flush();
+  if (function->function_kind() == FunctionKind::kSyncBEFFunction) {
+    RunSyncBefFunctionHelper(host, function);
+  } else {
+    RunAsyncBefFunctionHelper(host, function);
+  }
 
   if (AsyncValue::AsyncValueAllocationTrackingEnabled()) {
     auto after_num_values = AsyncValue::GetNumAsyncValueInstances();

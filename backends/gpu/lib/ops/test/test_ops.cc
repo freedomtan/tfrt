@@ -27,10 +27,9 @@
 #include "tfrt/core_runtime/op_attr_type.h"
 #include "tfrt/core_runtime/op_attrs.h"
 #include "tfrt/core_runtime/op_utils.h"
-#include "tfrt/gpu/core_runtime/gpu_dispatch_context.h"
 #include "tfrt/gpu/core_runtime/gpu_op_registry.h"
 #include "tfrt/gpu/core_runtime/gpu_op_utils.h"
-#include "tfrt/gpu/core_runtime/tensor_util.h"
+#include "tfrt/gpu/device/conversion_function.h"
 #include "tfrt/gpu/memory/gpu_buffer.h"
 #include "tfrt/gpu/ops/test/gpu_ops_and_kernels.h"
 #include "tfrt/gpu/tensor/dense_gpu_tensor.h"
@@ -39,11 +38,7 @@
 #include "tfrt/tensor/dense_host_tensor.h"
 
 namespace tfrt {
-using gpu::stream::EventFlags;
-using gpu::stream::EventRecord;
-using gpu::stream::EventSynchronize;
 using gpu::stream::OwningEvent;
-using gpu::stream::Pointer;
 
 // TODO(tfrt-devs): CoreRT device (corert.executeop) takes TensorHandle
 // inputs, and produce TensorHandle outputs. This operation simply passes input
@@ -126,19 +121,24 @@ static llvm::Expected<gpu::DenseGpuTensor> CreateDenseTensorOp(
   }
 
   DenseHostTensor tensor{result_md, std::move(host_buffer)};
-  return gpu::CopyDenseHostTensorToGpu(dctx, tensor, exec_ctx.host());
+  return gpu::CopyDenseHostTensorToGpu(dctx->current_context(), dctx->stream(),
+                                       dctx->allocator(), tensor,
+                                       exec_ctx.host());
 }
 
 static AsyncValueRef<DenseHostTensor> GpuTensorToHostTensorOp(
     GpuDispatchContext* dctx, const gpu::DenseGpuTensor& input,
     const TensorMetadata& result_md, const ExecutionContext& exec_ctx) {
-  return gpu::CopyDenseGpuTensorToHost(dctx, input, exec_ctx.host());
+  return gpu::CopyDenseGpuTensorToHost(dctx->current_context(), dctx->stream(),
+                                       input, exec_ctx.host());
 }
 
 static llvm::Expected<gpu::DenseGpuTensor> DHTToGpuTensorOp(
     GpuDispatchContext* dctx, const DenseHostTensor& input,
     const TensorMetadata& result_md, const ExecutionContext& exec_ctx) {
-  return gpu::CopyDenseHostTensorToGpu(dctx, input, exec_ctx.host());
+  return gpu::CopyDenseHostTensorToGpu(dctx->current_context(), dctx->stream(),
+                                       dctx->allocator(), input,
+                                       exec_ctx.host());
 }
 
 static TensorMetadata UnaryIdentityMD(const TensorMetadata& input) {

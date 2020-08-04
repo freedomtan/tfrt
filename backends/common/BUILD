@@ -109,15 +109,15 @@ tfrt_cc_library(
         "lib/compat/eigen/contraction_kernel.cc",
     ],
     hdrs = [
+        "include/tfrt/common/compat/eigen/contraction_kernel.h",
+        "include/tfrt/common/compat/eigen/contraction_output_kernel.h",
         "include/tfrt/common/compat/eigen/eigen_dtype.h",
         "include/tfrt/common/compat/eigen/eigen_kernel.h",
+        "include/tfrt/common/compat/eigen/partial_packets.h",
+        "include/tfrt/common/compat/eigen/spatial_convolution.h",
+        "include/tfrt/common/compat/eigen/spatial_convolution_data_mapper.h",
         "include/tfrt/common/compat/eigen/tensor_types.h",
         "include/tfrt/common/compat/eigen/thread_pool_device.h",
-        "lib/compat/eigen/contraction_kernel.h",
-        "lib/compat/eigen/contraction_output_kernel.h",
-        "lib/compat/eigen/partial_packets.h",
-        "lib/compat/eigen/spatial_convolution.h",
-        "lib/compat/eigen/spatial_convolution_data_mapper.h",
     ],
     defines = [
         "EIGEN_MUTEX=std::mutex",
@@ -161,7 +161,6 @@ tfrt_cc_library(
         "lib/compat/eigen/kernels/cpu_kernels.cc",
         "lib/compat/eigen/kernels/matmul.cc",
         "lib/compat/eigen/kernels/shape_functions.cc",
-        "lib/compat/eigen/kernels/softmax.h",
         "lib/compat/eigen/kernels/zero_padding.h",
     ],
     hdrs = [

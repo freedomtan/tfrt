@@ -80,6 +80,7 @@ static TensorMetadata UnaryIdentityMd(const TensorMetadata& input) {
 
 static Expected<TensorMetadata> MatMulMd(const TensorMetadata& a,
                                          const TensorMetadata& b,
+                                         VariadicOpArg<TensorMetadata> _,
                                          const OpAttrsRef& attrs) {
   if (a.dtype != b.dtype)
     return MakeStringError("incompatible dtypes for MatMul: In[0]: ", a.dtype,
@@ -158,6 +159,25 @@ static Expected<TensorMetadata> TfConvOpMd(const TensorMetadata& input,
   return TensorMetadata(input.dtype, output_dims_nchw);
 }
 
+static Expected<TensorMetadata> TfShapeOpMd(const TensorMetadata& input,
+                                            const OpAttrsRef& attrs) {
+  auto out_type = attrs.GetAsserting<OpAttrType>("out_type");
+  auto dtype = OpAttrTypeToDType(out_type);
+
+  if (dtype.kind() != DType::I32 && dtype.kind() != DType::I64)
+    return MakeStringError("Unsupported `out_type` value: ", dtype.kind());
+
+  return TensorMetadata(dtype, ArrayRef<ssize_t>{input.shape.GetRank()});
+}
+
+static Expected<TensorMetadata> TfZerosLikeOpMd(const TensorMetadata& input,
+                                                const OpAttrsRef& attrs) {
+  auto out_type = attrs.GetAsserting<OpAttrType>("T");
+  auto dtype = OpAttrTypeToDType(out_type);
+
+  return TensorMetadata(dtype, input.shape);
+}
+
 static Expected<TensorMetadata> TfMaxPoolOpMd(const TensorMetadata& input,
                                               const OpAttrsRef& attrs) {
   auto padding = attrs.GetStringAsserting("padding");
@@ -201,7 +221,14 @@ static Expected<TensorMetadata> TfBiasAddOpMd(const TensorMetadata& value,
                                               const TensorMetadata& bias,
                                               const OpAttrsRef& attrs) {
   if (value.dtype != bias.dtype)
-    return MakeStringError("incompatible dtypes for test.add");
+    return MakeStringError("incompatible dtypes for tf.BiasAdd");
+
+  string_view data_format;
+  bool has_data_format_attr = attrs.GetString("data_format", &data_format);
+
+  if (has_data_format_attr && data_format != "NHWC") {
+    return MakeStringError("invalid data format. Currently only support NHWC");
+  }
 
   if (bias.shape.GetRank() != 1) {
     return MakeStringError("bias must be 1-D");
@@ -463,6 +490,7 @@ GetAllTFMetadataFunctions() {
     result->emplace_back("tf.AddV2", TFRT_METADATA(TfBinaryOpMd));
     result->emplace_back("tf.Tanh", TFRT_METADATA(UnaryIdentityMd));
     result->emplace_back("tf.MatMul", TFRT_METADATA(MatMulMd));
+    result->emplace_back("tf._FusedMatMul", TFRT_METADATA(MatMulMd));
     result->emplace_back("tf.Log", TFRT_METADATA(UnaryIdentityMd));
     result->emplace_back("tf.Log1p", TFRT_METADATA(UnaryIdentityMd));
     result->emplace_back("tf.Relu", TFRT_METADATA(UnaryIdentityMd));
@@ -472,7 +500,11 @@ GetAllTFMetadataFunctions() {
     result->emplace_back("_tf.Mean", TFRT_METADATA(TfMeanOpFoldedMd));
     result->emplace_back("tf.Mul", TFRT_METADATA(TfBinaryOpMd));
     result->emplace_back("tf.RealDiv", TFRT_METADATA(TfBinaryOpMd));
+    result->emplace_back("tf.Rsqrt", TFRT_METADATA(UnaryIdentityMd));
+    result->emplace_back("tf.Shape", TFRT_METADATA(TfShapeOpMd));
     result->emplace_back("tf.Softmax", TFRT_METADATA(UnaryIdentityMd));
+    result->emplace_back("tf.Sigmoid", TFRT_METADATA(UnaryIdentityMd));
+    result->emplace_back("tf.LogSoftmax", TFRT_METADATA(UnaryIdentityMd));
     result->emplace_back("tf.Sub", TFRT_METADATA(TfBinaryOpMd));
     result->emplace_back("tf.BiasAdd", TFRT_METADATA(TfBiasAddOpMd));
     result->emplace_back("tf.FusedBatchNormV3", TFRT_METADATA(TfBatchNormOpMd));
@@ -483,6 +515,7 @@ GetAllTFMetadataFunctions() {
     result->emplace_back("tf.Transpose", TFRT_METADATA(TfTransposeOpMd));
     result->emplace_back("_tf.Transpose", TFRT_METADATA(TfTransposeOpFoldedMd));
     result->emplace_back("tf.Cast", TFRT_METADATA(TfCastOpMd));
+    result->emplace_back("tf.ZerosLike", TFRT_METADATA(TfZerosLikeOpMd));
     return result;
   }();
 

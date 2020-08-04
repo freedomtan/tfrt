@@ -24,6 +24,7 @@
 #ifndef TFRT_GPU_CORE_RUNTIME_GPU_DISPATCH_CONTEXT_H_
 #define TFRT_GPU_CORE_RUNTIME_GPU_DISPATCH_CONTEXT_H_
 
+#include "tfrt/gpu/device/device.h"
 #include "tfrt/gpu/memory/gpu_allocator.h"
 #include "tfrt/gpu/stream/blas_wrapper.h"
 #include "tfrt/gpu/stream/dnn_wrapper.h"
@@ -36,18 +37,14 @@ class GpuDevice;
 namespace tfrt {
 class GpuDispatchContext {
  public:
-  explicit GpuDispatchContext(gpu::stream::Stream stream,
-                              gpu::GpuAllocator* allocator,
-                              Eigen::GpuDevice* eigen_gpu_device,
-                              gpu::stream::BlasHandle blas_handle,
-                              gpu::stream::DnnHandle dnn_handle,
-                              gpu::stream::CurrentContext current_context)
-      : stream_(stream),
-        allocator_(allocator),
-        eigen_gpu_device_(eigen_gpu_device),
-        blas_handle_(blas_handle),
-        dnn_handle_(dnn_handle),
-        current_context_(std::move(current_context)) {}
+  explicit GpuDispatchContext(const GpuDevice* device)
+      : device_(device),
+        stream_(device->stream()),
+        allocator_(device->allocator()),
+        eigen_gpu_device_(device->eigen_gpu_device()),
+        blas_handle_(device->blas_handle()),
+        dnn_handle_(device->dnn_handle()),
+        current_context_(std::move(device->CreateContext())) {}
 
   // The inputs to the GPU dispatch function are available for reading on this
   // stream.  The outputs from the dispatch must also be ready for reading on
@@ -64,7 +61,7 @@ class GpuDispatchContext {
   gpu::stream::BlasHandle blas_handle() const { return blas_handle_; }
 
   // GPU DNN library handle. Used to launch convolutions etc.
-  gpu::stream::DnnHandle dnn_handle() { return dnn_handle_; }
+  gpu::stream::DnnHandle dnn_handle() const { return dnn_handle_; }
 
   // The GPU device sets the current context before calling into the dispatch
   // function.  See the documentation for gpu::stream::CurrentContext for more
@@ -73,7 +70,10 @@ class GpuDispatchContext {
     return current_context_;
   }
 
+  const GpuDevice& device() const { return *device_; }
+
  private:
+  const GpuDevice* device_;
   gpu::stream::Stream stream_;
   gpu::GpuAllocator* allocator_;
   Eigen::GpuDevice* eigen_gpu_device_;

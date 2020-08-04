@@ -26,6 +26,7 @@
 #include "cwise_unary_ops.h"
 
 #include "../../kernels/cwise_unary_kernels.h"
+#include "buffer_forwarding.h"
 #include "tfrt/common/compat/eigen/eigen_dtype.h"
 #include "tfrt/common/ops/tf/metadata_functions.h"
 #include "tfrt/core_runtime/op_attrs.h"
@@ -44,30 +45,33 @@ namespace {
 
 template <typename UnaryFunctor>
 static AsyncValueRef<DenseHostTensor> TfUnaryOp(
-    const DenseHostTensor& input, const TensorMetadata& output_md,
+    Argument<DenseHostTensor> input, const TensorMetadata& output_md,
     const ExecutionContext& exec_ctx) {
-  HostContext* host = exec_ctx.host();
+  // Forward input tensor or allocate new output tensor.
+  AsyncValueRef<DenseHostTensor> output =
+      ForwardInputOrAllocateOutput(exec_ctx, output_md, input);
+  if (output.IsError()) return output;
 
-  auto dest = DenseHostTensor::CreateUninitialized(output_md, host);
-  if (!dest) {
-    return EmitErrorAsync(exec_ctx, "out of memory allocating result");
-  }
+  auto on_done = [output = output.CopyRef()](Error err) {
+    // Forward errors to the tensor output.
+    err ? output.SetError(err) : output.SetStateConcrete();
+  };
 
-  AsyncValueRef<Chain> chain;
-  switch (input.dtype().kind()) {
+  switch (input->dtype().kind()) {
     default:
-      chain = EmitErrorAsync(exec_ctx, "unsupported dtype");
+      return EmitErrorAsync(exec_ctx, "unsupported dtype");
       break;
-#define DTYPE_FLOAT(ENUM)                                                    \
-  case DType::ENUM: {                                                        \
-    using F = typename UnaryFunctor::template Functor<                       \
-        EigenTypeForDTypeKind<DType::ENUM>>;                                 \
-    chain = ::tfrt::cpu::UnaryKernel<F>(input, dest.getPointer(), exec_ctx); \
+#define DTYPE_FLOAT(ENUM)                                      \
+  case DType::ENUM: {                                          \
+    using F = typename UnaryFunctor::template Functor<         \
+        EigenTypeForDTypeKind<DType::ENUM>>;                   \
+    tfrt::cpu::UnaryKernel<F>(*input, &output.get(), exec_ctx, \
+                              std::move(on_done));             \
   } break;
 #include "tfrt/dtype/dtype.def"  // NOLINT
   }
 
-  return ForwardValue(dest.getValue(), std::move(chain), host);
+  return output;
 }
 
 template <typename Functor>
@@ -81,6 +85,8 @@ void RegisterTfUnaryOp(CpuOpRegistry* op_registry, string_view op_name) {
 void RegisterTfUnaryCpuOps(CpuOpRegistry* op_registry) {
   RegisterTfUnaryOp<cpu::functor::Log>(op_registry, "tf.Log");
   RegisterTfUnaryOp<cpu::functor::Log1p>(op_registry, "tf.Log1p");
+  RegisterTfUnaryOp<cpu::functor::Rsqrt>(op_registry, "tf.Rsqrt");
+  RegisterTfUnaryOp<cpu::functor::Sigmoid>(op_registry, "tf.Sigmoid");
 }
 
 }  // namespace tfrt

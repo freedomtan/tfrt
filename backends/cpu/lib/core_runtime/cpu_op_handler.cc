@@ -83,6 +83,9 @@ uint32_t TensorNeedsConversion(const Tensor& t, const CpuOpEntry& entry) {
   if (entry.flags & CpuOpFlags::AllowsScalar)
     allowed_formats |= 1 << static_cast<uint32_t>(Tensor::Subclass::ScalarHost);
 
+  if (entry.flags & CpuOpFlags::AllowsString)
+    allowed_formats |= 1 << static_cast<uint32_t>(Tensor::Subclass::StringHost);
+
   if (entry.flags & CpuOpFlags::AllowsCoo)
     allowed_formats |= 1 << static_cast<uint32_t>(Tensor::Subclass::CooHost);
 
@@ -132,7 +135,8 @@ llvm::Expected<std::unique_ptr<OpHandler>> CpuOpHandlerFactory(
   tfrt::RegisterStaticCpuOps(&op_registry);
   return std::unique_ptr<OpHandler>(new CpuOpHandler(
       runtime, fallback, std::move(op_registry),
-      runtime->GetHostContext()->GetDeviceManager()->GetDeviceRef("CPU:0")));
+      runtime->GetHostContext()->GetDeviceManager()->GetDeviceRef<CpuDevice>(
+          "CPU:0")));
 }
 
 llvm::Expected<OpHandler*> CreateCpuOpHandler(CoreRuntime* runtime,

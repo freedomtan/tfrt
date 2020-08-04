@@ -22,6 +22,7 @@
 #include "tfrt/host_context/async_value_ref.h"
 #include "tfrt/host_context/kernel_utils.h"
 #include "tfrt/host_context/shared_context.h"
+#include "tfrt/host_context/sync_kernel_utils.h"
 #include "tfrt/support/error_util.h"
 #include "tfrt/support/logging.h"
 #include "tfrt/tensor/dense_host_tensor.h"
@@ -35,9 +36,12 @@ static llvm::Expected<int32_t> TestFail() {
   return MakeStringError("something bad happened");
 }
 
+// This kernel produces only failure/success as Error.
+static Error TestError() { return MakeStringError("something bad happened"); }
+
 // This kernel produces a normal output and an error output.
 static void TestPartialFail(Result<int32_t> one, Result<int32_t> error_out,
-                            KernelFrame* frame) {
+                            AsyncKernelFrame* frame) {
   one.Emplace(1);
   frame->ReportError("something bad happened");
 }
@@ -45,7 +49,7 @@ static void TestPartialFail(Result<int32_t> one, Result<int32_t> error_out,
 // This kernel produces an error asynchronously.
 static void TestReportErrorAsync(Result<int32_t> out,
                                  const ExecutionContext& exec_ctx,
-                                 KernelFrame* frame) {
+                                 AsyncKernelFrame* frame) {
   exec_ctx.host()->EnqueueWork(
       [out_ref = out.Allocate(), frame_copy = *frame]() mutable {
         frame_copy.ReportError("something bad happened asynchronously");
@@ -293,6 +297,15 @@ static DenseHostTensor TestConstDenseAttr(DenseAttr dense_attr,
   return std::move(*result);
 }
 
+// For testing RemainingSyncArguments
+static int TestSyncSum(int a, RemainingSyncArguments other_args) {
+  int sum = a;
+  for (int i = 0; i < other_args.size(); ++i) {
+    sum += other_args[i]->get<int>();
+  }
+  return sum;
+}
+
 void RegisterSimpleTestKernels(KernelRegistry* registry) {
   registry->AddKernel("tfrt_test.fail", TFRT_KERNEL(TestFail));
   registry->AddKernel("tfrt_test.partial_fail", TFRT_KERNEL(TestPartialFail));
@@ -313,6 +326,10 @@ void RegisterSimpleTestKernels(KernelRegistry* registry) {
                       TFRT_KERNEL(TestReportErrorAsync));
   registry->AddKernel("tfrt_test.const_dense_attr",
                       TFRT_KERNEL(TestConstDenseAttr));
+
+  registry->AddSyncKernel("tfrt_test.fail_s", TFRT_SYNC_KERNEL(TestFail));
+  registry->AddSyncKernel("tfrt_test.error_s", TFRT_SYNC_KERNEL(TestError));
+  registry->AddSyncKernel("tfrt_test.sync_sum", TFRT_SYNC_KERNEL(TestSyncSum));
 }
 
 }  // namespace tfrt

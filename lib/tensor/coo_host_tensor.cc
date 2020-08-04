@@ -58,10 +58,10 @@ void ConvertToDHTTensorHelper(const DenseHostTensor &indices,
 
 AsyncValueRef<HostTensor> CooHostTensor::ConvertToHostTensor(
     HostContext *host, uint32_t allowed_formats) const {
-  return AsyncValueRef<HostTensor>(CopyTensorToDevice(*this,
-                                                      *host->GetHostDeviceRef(),
-                                                      {allowed_formats}, host)
-                                       .ReleaseRCRef());
+  auto &cpu = host->GetHostDevice();
+  return AsyncValueRef<HostTensor>(
+      TransferTensorTo(*this, cpu, cpu, {allowed_formats}, host)
+          .ReleaseRCRef());
 }
 
 void CooHostTensor::Print(raw_ostream &os) const {
@@ -83,14 +83,15 @@ void CooHostTensor::Print(raw_ostream &os) const {
 
 // TODO(fishx): Add a macro to simplify the implementation of ConversionFn.
 static AsyncValueRef<Tensor> CooToHostTensorConversion(
-    const Tensor &tensor, const Device &dst, TensorFormats allowed_formats,
-    HostContext *host) {
+    const Tensor &tensor, const Device &src, const Device &dst,
+    TensorFormats allowed_formats, const ExecutionContext &exec_ctx) {
   assert(tensor.subclass() == Tensor::Subclass::CooHost);
   assert(dst.type().name() == "cpu");
   const CooHostTensor &coo = static_cast<const CooHostTensor &>(tensor);
+  auto *host = exec_ctx.host();
   // Allows conversion to ScalarHostTensor if at most one element or if it is an
   // arbitrary-shaped COO tensor but all elements are zero.
-  if (allowed_formats.IsAllowed(Tensor::Subclass::ScalarHost)) {
+  if (allowed_formats.Contains(Tensor::Subclass::ScalarHost)) {
     switch (tensor.dtype().kind()) {
       default:
         llvm_unreachable("can't happen");
@@ -113,7 +114,7 @@ static AsyncValueRef<Tensor> CooToHostTensorConversion(
     }
   }
 
-  if (allowed_formats.IsAllowed(Tensor::Subclass::DenseHost)) {
+  if (allowed_formats.Contains(Tensor::Subclass::DenseHost)) {
     // Otherwise, return a DenseHostTensor.
     auto result = host->MakeUnconstructedAsyncValueRef<DenseHostTensor>();
     auto result_alloc =

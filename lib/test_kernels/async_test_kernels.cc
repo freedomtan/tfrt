@@ -88,6 +88,25 @@ static void TestUSleep(Argument<int32_t> sleep_time_us_arg,
   }
 }
 
+static void TestBlockingUSleep(Argument<int32_t> sleep_time_us_arg,
+                               Result<Chain> sleeping_done,
+                               const ExecutionContext& exec_ctx) {
+  int32_t sleep_time_us = *sleep_time_us_arg;
+  bool work_enqueued = exec_ctx.host()->EnqueueBlockingWork(
+      [sleep_time_us, sleeping_done = sleeping_done.Allocate()] {
+        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time_us));
+        printf("Slept for %d microseconds\n", sleep_time_us);
+        fflush(stdout);
+        sleeping_done.emplace();
+      });
+
+  if (!work_enqueued) {
+    // We can't ReportError here because this kernel has no outputs.
+    llvm::errs() << "Failed to enqueue blocking work. Maximum number of "
+                    "pending blocking tasks reached.\n";
+  }
+}
+
 // Test-only.
 static void TestQuiesce(const ExecutionContext& exec_ctx) {
   exec_ctx.host()->Quiesce();
@@ -96,7 +115,7 @@ static void TestQuiesce(const ExecutionContext& exec_ctx) {
 static void TestReportErrorConcreteAsync(Argument<int32_t> in,
                                          Result<int32_t> out,
                                          const ExecutionContext& exec_ctx,
-                                         KernelFrame* frame) {
+                                         AsyncKernelFrame* frame) {
   AsyncValueRef<int32_t> result_ref = out.Allocate();
   exec_ctx.host()->EnqueueWork(
       [in = *in, result_ref = std::move(result_ref), frame = *frame]() mutable {
@@ -112,7 +131,7 @@ static void TestReportErrorConcreteAsync(Argument<int32_t> in,
 static void TestReportIndirectErrorAsync(Argument<int32_t> in,
                                          Result<int32_t> out,
                                          const ExecutionContext& exec_ctx,
-                                         KernelFrame* frame) {
+                                         AsyncKernelFrame* frame) {
   HostContext* host = exec_ctx.host();
   auto result_ref = out.AllocateIndirect();
   host->EnqueueWork([in = *in, result_ref = std::move(result_ref),
@@ -132,6 +151,8 @@ void RegisterAsyncTestKernels(KernelRegistry* registry) {
   registry->AddKernel("tfrt_test.do.async", TFRT_KERNEL(TestDoAsync));
   registry->AddKernel("tfrt_test.quiesce", TFRT_KERNEL(TestQuiesce));
   registry->AddKernel("tfrt_test.usleep", TFRT_KERNEL(TestUSleep));
+  registry->AddKernel("tfrt_test.blocking.usleep",
+                      TFRT_KERNEL(TestBlockingUSleep));
   registry->AddKernel("tfrt_test.report_error_concrete_async",
                       TFRT_KERNEL(TestReportErrorConcreteAsync));
   registry->AddKernel("tfrt_test.report_error_indirect_async",

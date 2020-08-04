@@ -95,6 +95,23 @@ namespace tfrt {
 #define TFRT_SYNC_KERNEL(...) \
   ::tfrt::TfrtSyncKernelImpl<decltype(&__VA_ARGS__), &__VA_ARGS__>::Invoke
 
+// RemainingSyncArguments collects all remaining arguments in an ArrayRef. There
+// can be at most one RemainingSyncArguments, and it must appear after all other
+// Arguments.
+class RemainingSyncArguments {
+ public:
+  explicit RemainingSyncArguments(ArrayRef<uint32_t> reg_indices,
+                                  ArrayRef<Value*> registers)
+      : reg_indices_{reg_indices}, registers_{registers} {}
+
+  size_t size() const { return reg_indices_.size(); }
+  Value* operator[](size_t i) const { return registers_[reg_indices_[i]]; }
+
+ private:
+  ArrayRef<uint32_t> reg_indices_;
+  ArrayRef<Value*> registers_;
+};
+
 // This class is an implementation detail of TFRT_SYNC_KERNEL.
 template <typename F, F f>
 struct TfrtSyncKernelImpl;
@@ -189,6 +206,14 @@ struct TfrtSyncKernelImpl<Return (*)(Args...), impl_fn> {
     }
   }
 
+  // For kernel functions that return Error, call frame->SetError() to report
+  // the error message.
+  static void HandleReturn(SyncKernelFrame* frame, Error&& t) {
+    if (t) {
+      frame->SetError(std::move(t));
+    }
+  }
+
   // Helper that introspects the kernel arguments to derive the signature and
   // cast parts of the SyncKernelFrame to their appropriate type before passing
   // them to impl_fn. Works by recursively unpacking the arguments.
@@ -235,7 +260,7 @@ struct TfrtSyncKernelImpl<Return (*)(Args...), impl_fn> {
                   "TypedAttrT must be derived from class TypedAttrBase");
     template <int in_idx, int const_idx, typename... PreviousArgs>
     static void Invoke(SyncKernelFrame* frame, const PreviousArgs&... pargs) {
-      TypedAttrT arg(frame->GetAttributes()[const_idx]);
+      TypedAttrT arg(frame->GetAttributeAt(const_idx));
       SyncKernelCallHelper<Tail...>::template Invoke<in_idx, const_idx + 1>(
           frame, pargs..., arg);
     }
@@ -311,7 +336,7 @@ struct TfrtSyncKernelImpl<Return (*)(Args...), impl_fn> {
     template <int in_idx, int const_idx, typename... PreviousArgs>
     static void Invoke(SyncKernelFrame* frame, const PreviousArgs&... pargs) {
       static_assert(in_idx != -1,
-                    "Do not place Arguments after RemainingArguments");
+                    "Do not place Arguments after RemainingSyncArguments");
       static_assert(const_idx == 0,
                     "Arguments and results should appear before attributes.");
       auto* value = frame->GetArgAt(in_idx);
@@ -322,6 +347,24 @@ struct TfrtSyncKernelImpl<Return (*)(Args...), impl_fn> {
     }
   };
 
+  // RemainingSyncArguments provides an ArrayRef<Value*> containing all
+  // remaining arguments. Useful for variadic kernels.
+  template <typename... Tail>
+  struct SyncKernelCallHelper<RemainingSyncArguments, Tail...> {
+    template <int in_idx, int const_idx, typename... PreviousArgs>
+    static void Invoke(SyncKernelFrame* frame, const PreviousArgs&... pargs) {
+      static_assert(in_idx != -1,
+                    "Do not use more than one RemainingSyncArguments");
+      static_assert(const_idx == 0,
+                    "Arguments and results should appear before attributes.");
+      RemainingSyncArguments remaining_arguments(
+          frame->GetArguments().drop_front(in_idx), frame->GetRegisters());
+
+      SyncKernelCallHelper<Tail...>::template Invoke<-1, const_idx>(
+          frame, pargs..., remaining_arguments);
+    }
+  };
+
   // Base case: No arguments left.
   // TypeTag<T> is a dummy template parameter to work around the restriction
   // of GCC that fully specialized template is not allowed in a template class.
@@ -329,7 +372,7 @@ struct TfrtSyncKernelImpl<Return (*)(Args...), impl_fn> {
   struct SyncKernelCallHelper<TypeTag<T>> {
     template <int in_idx, int const_idx, typename... PreviousArgs>
     static void Invoke(SyncKernelFrame* frame, const PreviousArgs&... pargs) {
-      assert(in_idx == frame->GetNumArgs() &&
+      assert((in_idx == -1 || in_idx == frame->GetNumArgs()) &&
              "Extra arguments passed to kernel.");
       assert(const_idx == frame->GetNumAttributes() &&
              "Extra attributes passed to kernel.");

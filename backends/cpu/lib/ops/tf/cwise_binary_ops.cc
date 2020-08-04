@@ -26,6 +26,7 @@
 #include "cwise_binary_ops.h"
 
 #include "../../kernels/cwise_binary_kernels.h"
+#include "buffer_forwarding.h"
 #include "tfrt/common/compat/eigen/eigen_dtype.h"
 #include "tfrt/common/ops/tf/metadata_functions.h"
 #include "tfrt/core_runtime/op_attrs.h"
@@ -44,8 +45,8 @@ namespace tfrt {
 namespace {
 
 template <typename BinaryFunctor>
-static AsyncValueRef<HostTensor> TfBinaryOp(const HostTensor& lhs,
-                                            const HostTensor& rhs,
+static AsyncValueRef<HostTensor> TfBinaryOp(Argument<HostTensor> lhs,
+                                            Argument<HostTensor> rhs,
                                             const TensorMetadata& output_md,
                                             const ExecutionContext& exec_ctx) {
   HostContext* host = exec_ctx.host();
@@ -53,8 +54,8 @@ static AsyncValueRef<HostTensor> TfBinaryOp(const HostTensor& lhs,
   // ------------------------------------------------------------------------ //
   // Handle scalar + scalar case, output is a scalar tensor.
   // ------------------------------------------------------------------------ //
-  if (isa<AnyScalarHostTensor>(lhs) && isa<AnyScalarHostTensor>(rhs)) {
-    switch (lhs.dtype().kind()) {
+  if (isa<AnyScalarHostTensor>(*lhs) && isa<AnyScalarHostTensor>(*rhs)) {
+    switch (lhs->dtype().kind()) {
       default:
         return host->MakeErrorAsyncValueRef("unsupported dtype");
 
@@ -64,8 +65,8 @@ static AsyncValueRef<HostTensor> TfBinaryOp(const HostTensor& lhs,
     using F = typename BinaryFunctor::template Functor<T>;                \
     auto output =                                                         \
         host->MakeAvailableAsyncValueRef<ScalarHostTensor<T>>(output_md); \
-    ::tfrt::cpu::BinaryKernel<F>(                                         \
-        lhs, rhs, dyn_cast<HostTensor>(&output.get()), exec_ctx);         \
+    ::tfrt::cpu::BinaryKernel<F>(*lhs, *rhs, &output.get(), exec_ctx,     \
+                                 [](Error err) {});                       \
     return output;                                                        \
   } break;
 #include "tfrt/dtype/dtype.def"  // NOLINT
@@ -75,28 +76,32 @@ static AsyncValueRef<HostTensor> TfBinaryOp(const HostTensor& lhs,
   // ------------------------------------------------------------------------ //
   // Handle dense host tensor case, output is a dense host tensor.
   // ------------------------------------------------------------------------ //
-  auto dest = DenseHostTensor::CreateUninitialized(output_md, host);
-  if (!dest) {
-    return EmitErrorAsync(exec_ctx, "out of memory allocating result");
-  }
+  // Forward input tensor or allocate new output tensor.
+  AsyncValueRef<DenseHostTensor> output =
+      ForwardInputOrAllocateOutput(exec_ctx, output_md, lhs, rhs);
+  if (output.IsError()) return output;
 
-  AsyncValueRef<Chain> chain;
-  switch (lhs.dtype().kind()) {
+  auto on_done = [output = output.CopyRef()](Error err) {
+    // Forward errors to the tensor output.
+    err ? output.SetError(err) : output.SetStateConcrete();
+  };
+
+  switch (lhs->dtype().kind()) {
     default:
-      chain = EmitErrorAsync(exec_ctx, "unsupported dtype");
+      on_done(MakeStringError("unsupported dtype"));
       break;
 
-#define DTYPE_NUMERIC(ENUM)                                                  \
-  case DType::ENUM: {                                                        \
-    using F = typename BinaryFunctor::template Functor<                      \
-        EigenTypeForDTypeKind<DType::ENUM>>;                                 \
-    chain =                                                                  \
-        ::tfrt::cpu::BinaryKernel<F>(lhs, rhs, dest.getPointer(), exec_ctx); \
+#define DTYPE_NUMERIC(ENUM)                                           \
+  case DType::ENUM: {                                                 \
+    using T = EigenTypeForDTypeKind<DType::ENUM>;                     \
+    using F = typename BinaryFunctor::template Functor<T>;            \
+    ::tfrt::cpu::BinaryKernel<F>(*lhs, *rhs, &output.get(), exec_ctx, \
+                                 std::move(on_done));                 \
   } break;
 #include "tfrt/dtype/dtype.def"  // NOLINT
   }
 
-  return ForwardValue(dest.getValue(), std::move(chain), host);
+  return output;
 }
 
 template <typename Functor>

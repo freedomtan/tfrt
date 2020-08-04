@@ -22,11 +22,11 @@ static llvm::Expected<int32_t> TFRTTestFail() {
 ### Partial Failures
 
 Kernels may return a mix of error values and non-error values with
-`KernelFrame::ReportError`:
+`AsyncKernelFrame::ReportError`:
 
 ```c++
 static void TFRTTestPartialFail(Result<int32_t> one, Result<int32_t> error_out,
-                               KernelFrame* frame) {
+                               AsyncKernelFrame* frame) {
   one.Emplace(1);
   // Only sets error_out to an error AsyncValue. `one` is untouched.
   frame->ReportError("something bad happened");
@@ -37,12 +37,12 @@ The kernel above returns two values: `1` and an `AsyncValue` with error. This
 allows for fine-grained error handling: a kernel may partially succeed by
 returning a mix of valid values and error values.
 
-`KernelFrame::ReportError` also sets the kernel's *unavailable* concrete results
-to error state:
+`AsyncKernelFrame::ReportError` also sets the kernel's *unavailable* concrete
+results to error state:
 
 ```c++
 static void TFRTTestPartialFail(Result<int32_t> one, Result<int32_t> error_out,
-                               KernelFrame* frame) {
+                               AsyncKernelFrame* frame) {
   one.Emplace(1);
   error_out.Allocate();
   // Only sets error_out, which is an unavailable ConcreteAsyncValue, to error
@@ -59,7 +59,7 @@ unavailable concrete results. For example this kernel will trigger an assertion
 failure:
 
 ```c++ {.bad}
-static void TFRTNoErrorReported(Result<int32_t> out, KernelFrame* frame)
+static void TFRTNoErrorReported(Result<int32_t> out, AsyncKernelFrame* frame)
 {
   out.Emplace(1);
   // No unset results or unavailable concrete results at this point. ReportError
@@ -70,12 +70,12 @@ static void TFRTNoErrorReported(Result<int32_t> out, KernelFrame* frame)
 
 ## Reporting Errors From Asynchronous Kernels
 
-Asynchronous kernels typically use `KernelFrame::ReportError` to report an
+Asynchronous kernels typically use `AsyncKernelFrame::ReportError` to report an
 error:
 
 ```c++
 static void TestReportErrorAsync(Result<int32_t> out, HostContext* host,
-                                 KernelFrame* frame) {
+                                 AsyncKernelFrame* frame) {
   host->EnqueueWork([out_ref = out.Allocate(), frame_copy = *frame]() mutable {
     // Set unavailable concrete out_ref to error.
     frame_copy.ReportError("something bad happened asynchronously");
@@ -86,7 +86,7 @@ static void TestReportErrorAsync(Result<int32_t> out, HostContext* host,
 Note: In this example, it is not possible to asynchronously allocate `out`.
 Kernels must synchronously allocate values for all their results.
 
-Note: In this example, we must copy the `KernelFrame` because the original
+Note: In this example, we must copy the `AsyncKernelFrame` because the original
 `frame` is destroyed when the kernel returns. If `TestReportErrorAsync` tried to
 use `frame` asynchronously, it would dereference an invalid pointer.
 
@@ -238,15 +238,14 @@ is cancelled or an error occurs.
 
 These are guidelines, not rules: they can and will conflict with each other.
 
+Use Complete Sentences for messages. Start error message with lower-case letter
+and avoid having a full stop at the end of the message.
+
 Remember that error messages are for human consumption and are not generally
 parsed by code. Try to write error messages that help whoever reads them.
 Resolve guideline conflicts by thinking about what would be more helpful for the
 user. And remember that you might not be the user - what's helpful to you might
 confuse others.
-
-### Use Complete Sentences
-
-Capitalize the first letter of each sentence and use punctuation.
 
 ### Be Specific And Succinct
 
