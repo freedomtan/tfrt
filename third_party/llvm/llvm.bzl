@@ -308,7 +308,7 @@ llvm_all_cmake_vars = select({
             cmake_vars,
             llvm_target_cmake_vars("X86", "x86_64-unknown-linux_gnu"),
             posix_cmake_vars,
-            linux_cmake_vars,
+            darwin_cmake_vars,
         ),
     ),
 })

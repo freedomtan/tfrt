@@ -166,12 +166,12 @@ class BtfFile {
     // Technically, the BTF spec defines dims as unsigned, but the difference
     // should not matter because each tensor dimension should be significantly
     // smaller than std::numeric_limits<int64_t>::max().
-    const int64_t* dims = Read<int64_t>(pos, rank);
+    const ssize_t* dims = Read<ssize_t>(pos, rank);
     if (!dims) return llvm::None;
 
     TensorMetadata metadata(type, llvm::ArrayRef<ssize_t>(dims, rank));
 
-    size_t data_size = type.GetHostSize() * metadata.shape.GetNumElements();
+    ssize_t data_size = type.GetHostSize() * metadata.shape.GetNumElements();
     const void* data = Read<char>(pos, data_size);
     if (!data) return llvm::None;
 
@@ -189,7 +189,7 @@ class BtfFile {
   llvm::Optional<CooHostTensor> ReadCooHostTensorPayload(size_t* pos,
                                                          DType type,
                                                          uint64_t rank) const {
-    const int64_t* dims = Read<int64_t>(pos, rank);
+    const ssize_t* dims = Read<ssize_t>(pos, rank);
     if (!dims) return llvm::None;
 
     TensorShape shape(llvm::ArrayRef<ssize_t>(dims, rank));
