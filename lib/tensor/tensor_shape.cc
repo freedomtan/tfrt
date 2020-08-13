@@ -249,9 +249,9 @@ raw_ostream& operator<<(raw_ostream& os, const PartialTensorShape& value) {
   return os << ']';
 }
 
-PartialTensorShape::PartialTensorShape(Optional<ArrayRef<int64_t>> dims) {
+PartialTensorShape::PartialTensorShape(Optional<ArrayRef<ssize_t>> dims) {
   if (dims.hasValue()) {
-    SmallVector<int64_t, 4> dims_vec{dims.getValue().begin(),
+    SmallVector<ssize_t, 4> dims_vec{dims.getValue().begin(),
                                      dims.getValue().end()};
     dims_ = std::move(dims_vec);
   }
@@ -264,7 +264,7 @@ bool PartialTensorShape::IsUnranked() const {
   return true;
 }
 
-Optional<ArrayRef<int64_t>> PartialTensorShape::GetShape() const {
+Optional<ArrayRef<ssize_t>> PartialTensorShape::GetShape() const {
   if (IsUnranked()) {
     return llvm::None;
   }

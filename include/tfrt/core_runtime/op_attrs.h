@@ -444,7 +444,10 @@ class OpAttrsRef {
   template <typename T>
   bool GetArray(string_view attr_name, ArrayRef<T>* value) const {
     const OpAttrsRawEntry* result = GetRaw(attr_name);
-    if (!result || !result->IsArray() || result->type != GetOpAttrType<T>())
+    if (!result || !result->IsArray() ||
+        (!((result->type == OpAttrType::I64) &&
+          (GetOpAttrType<T>() == OpAttrType::SSIZE_T)) &&
+        (result->type != GetOpAttrType<T>())))
       return false;
     *value = ArrayRef<T>(reinterpret_cast<const T*>(result->data),
                          result->array_size);

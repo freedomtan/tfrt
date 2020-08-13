@@ -177,8 +177,8 @@ AsyncValue* InterleaveDatasetIterator::FetchInputValues(
     // current block.
     auto fetched_num_in_block = iterator_and_queue.fetched_num_in_block;
     auto fetch_num =
-        std::min(output_buffer_size - total_queues_size_,
-                 parent_dataset_->block_length_ - fetched_num_in_block);
+        std::min((ssize_t) (output_buffer_size - total_queues_size_),
+                 (ssize_t) (parent_dataset_->block_length_ - fetched_num_in_block));
     // Pretch values from the current iterator into its queue and update
     // iterator's state.
     for (int i = 0; i < fetch_num; ++i) {
