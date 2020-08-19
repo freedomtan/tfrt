@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Clang 9 is required.
-build --client_env=CC=clang
+build --client_env=CC=clang-10
 
 # Remove -Wc++14-compat once C++17 is allowed.
 build --copt=-Wc++14-compat
@@ -37,7 +37,8 @@ build --host_linkopt=-lm
 build --compilation_mode=opt
 
 # Build settings for //backends/gpu/...
-build --@rules_cuda//cuda:cuda_targets=sm_60
+#build --@rules_cuda//cuda:cuda_targets=sm_60
+build --@rules_cuda//cuda:cuda_targets=sm_72
 build --@rules_cuda//cuda:cuda_runtime=@tf_runtime//backends/gpu:cuda_stubs
 build --copt=-U_FORTIFY_SOURCE  # TODO(csigg): fix and remove
 

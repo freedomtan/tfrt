@@ -138,6 +138,7 @@ static AsyncValueRef<DenseHostTensor> TfConv2DOp(
     return Eigen::NoOpOutputKernel();
   };
 
+#if 1
   switch (input.dtype().kind()) {
     default:
       chain = EmitErrorAsync(exec_ctx, "unsupported dtype for TfConv2DOp");
@@ -148,9 +149,18 @@ static AsyncValueRef<DenseHostTensor> TfConv2DOp(
         input, filter, output.getPointer(), padding, strides_t,       \
         std::move(output_kernel), exec_ctx);                          \
     break;
-#include "tfrt/dtype/dtype.def"  // NOLINT
+  // DTYPE_NUMERIC(UI8);
+  // DTYPE_NUMERIC(I8);
+  // DTYPE_NUMERIC(UI16);
+  // DTYPE_NUMERIC(I16);
+  DTYPE_NUMERIC(I64);
+  DTYPE_NUMERIC(F16);
+  DTYPE_NUMERIC(F32);
+  DTYPE_NUMERIC(F64);
+#undef DTYPE_NUMERIC
+// #include "tfrt/dtype/dtype.def"  // NOLINT
   }
-
+#endif
   return ForwardValue(output.getValue(), std::move(chain), host);
 }
 

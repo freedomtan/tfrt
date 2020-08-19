@@ -25,8 +25,9 @@
 
 static void* LoadSymbol(const char* symbol_name) {
   static void* handle = [&] {
-    auto ptr = dlopen("libcudnn.so.7", RTLD_LAZY);
-    if (!ptr) TFRT_LOG_ERROR << "Failed to load libcudnn.so.7";
+    // auto ptr = dlopen("libcudnn.so.7", RTLD_LAZY);
+    auto ptr = dlopen("libcudnn.so.8", RTLD_LAZY);
+    if (!ptr) TFRT_LOG_ERROR << "Failed to load libcudnn.so.8";
     return ptr;
   }();
   return handle ? dlsym(handle, symbol_name) : nullptr;
