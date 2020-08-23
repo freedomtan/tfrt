@@ -138,9 +138,14 @@ class InterleaveDatasetIterator : public Iterator {
 
     // The value from the input_iterator_ which can be used create the dataset.
     IterationResult input_value;
+    // The first value prefetched from the iterator. This is needed to let the
+    // intermediate iterator starts prefetching right after the iterator is
+    // constructed.
+    AsyncValueRef<IterationResult> prefetched_value;
     // The dataset by calling func_(input_value).
     RCReference<AsyncValue> dataset;
-    // The intermediate iterator created from the above dataset.
+    // The intermediate iterator created from the above dataset. Note that it
+    // can not be AsyncValueRef<Iterator> because Iterator is an abstract class.
     AsyncValueRef<RCReference<Iterator>> iterator;
     // A queue of results from the above intermediate iterator.
     std::queue<IterationResult> queue;

@@ -158,22 +158,22 @@ static std::string TestAsyncValueGet(const ExecutionContext& exec_ctx) {
   llvm::raw_string_ostream sstr(return_value);
   HostContext* host = exec_ctx.host();
 
-  auto child1_av_ref = host->MakeAvailableAsyncValueRef<TestChild1>();
+  auto child1_av_ref = MakeAvailableAsyncValueRef<TestChild1>(host);
   AsyncValue* child1_av = child1_av_ref.GetAsyncValue();
   auto& base1 = child1_av->get<TestBase1>();
   sstr << base1.base1;
 
-  auto child2_av_ref = host->MakeAvailableAsyncValueRef<TestChild2>();
+  auto child2_av_ref = MakeAvailableAsyncValueRef<TestChild2>(host);
   AsyncValue* child2_av = child2_av_ref.GetAsyncValue();
   auto& base2 = child2_av->get<TestBase2>();
   sstr << ":" << base2.base2;
 
-  auto final_class_av_ref = host->MakeAvailableAsyncValueRef<TestFinalClass>();
+  auto final_class_av_ref = MakeAvailableAsyncValueRef<TestFinalClass>(host);
   AsyncValue* final_class_av = final_class_av_ref.GetAsyncValue();
   auto& final_class_val = final_class_av->get<TestFinalClass>();
   sstr << ":" << final_class_val.name;
 
-  auto int_av_ref = host->MakeAvailableAsyncValueRef<int>(3);
+  auto int_av_ref = MakeAvailableAsyncValueRef<int>(host, 3);
   AsyncValue* int_av = int_av_ref.GetAsyncValue();
   auto& int_val = int_av->get<int>();
   sstr << ":" << int_val;
@@ -200,7 +200,7 @@ static std::string TestAsyncValueRef(const ExecutionContext& exec_ctx) {
   HostContext* host = exec_ctx.host();
 
   // Construct an available int with value 2.
-  AsyncValueRef<int> two = host->MakeAvailableAsyncValueRef<int>(2);
+  AsyncValueRef<int> two = MakeAvailableAsyncValueRef<int>(host, 2);
 
   std::string return_value;
   llvm::raw_string_ostream sstr(return_value);
@@ -208,7 +208,7 @@ static std::string TestAsyncValueRef(const ExecutionContext& exec_ctx) {
   sstr << AsyncValueRefToString(two);
 
   // Construct an unavailable int.
-  AsyncValueRef<int> three = host->MakeUnconstructedAsyncValueRef<int>();
+  AsyncValueRef<int> three = MakeUnconstructedAsyncValueRef<int>(host);
   sstr << ";" << AsyncValueRefToString(three);
 
   three.AndThen([&sstr, &three]() { sstr << "(" << three.get() << ")"; });
@@ -222,7 +222,7 @@ static std::string TestAsyncValueRef(const ExecutionContext& exec_ctx) {
   // Async usage.
   //
   // Allocate an unavailable int.
-  AsyncValueRef<int> four = host->MakeUnconstructedAsyncValueRef<int>();
+  AsyncValueRef<int> four = MakeUnconstructedAsyncValueRef<int>(host);
   sstr << ";" << AsyncValueRefToString(four);
 
   // Copy the unavailable int, forming a new ref, and bind it to a lambda.
@@ -315,6 +315,16 @@ static int TestSyncSum2(int a, RepeatedSyncArguments<int> other_args) {
   return sum;
 }
 
+// For testing a large number of attributes
+static void TestSyncSumAttributes(SyncKernelFrame* frame) {
+  int sum = 0;
+  for (int i = 0; i < frame->GetNumAttributes(); ++i) {
+    sum += *frame->GetAttributeAt<int>(i);
+  }
+
+  frame->EmplaceResultAt<int>(0, sum);
+}
+
 void RegisterSimpleTestKernels(KernelRegistry* registry) {
   registry->AddKernel("tfrt_test.fail", TFRT_KERNEL(TestFail));
   registry->AddKernel("tfrt_test.partial_fail", TFRT_KERNEL(TestPartialFail));
@@ -343,6 +353,8 @@ void RegisterSimpleTestKernels(KernelRegistry* registry) {
   registry->AddSyncKernel("tfrt_test.sync_sum", TFRT_SYNC_KERNEL(TestSyncSum));
   registry->AddSyncKernel("tfrt_test.sync_sum2",
                           TFRT_SYNC_KERNEL(TestSyncSum2));
+  registry->AddSyncKernel("tfrt_test.sync_sum_attributes",
+                          TestSyncSumAttributes);
 }
 
 }  // namespace tfrt

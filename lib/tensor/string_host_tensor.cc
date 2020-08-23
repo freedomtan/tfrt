@@ -23,25 +23,32 @@
 #include "llvm/Support/MD5.h"
 #include "llvm/Support/raw_ostream.h"
 #include "tfrt/host_context/host_context.h"
+#include "tfrt/tensor/tensor_metadata.h"
 
 namespace tfrt {
 
 llvm::Optional<StringHostTensor> StringHostTensor::CreateUninitialized(
-    const TensorMetadata& metadata, HostContext* host) {
-  auto num_elements = metadata.shape.GetNumElements();
+    const TensorShape& shape, HostContext* host) {
+  auto num_elements = shape.GetNumElements();
   HostArray<std::string> strings(num_elements, host->allocator());
   for (auto& str : strings.mutable_array()) {
     new (&str) std::string();
   }
 
-  return StringHostTensor(metadata, std::move(strings));
+  return StringHostTensor(shape, std::move(strings));
+}
+
+llvm::Optional<StringHostTensor> StringHostTensor::CreateUninitialized(
+    const TensorMetadata& metadata, HostContext* host) {
+  assert(metadata.dtype == DType(DType::String));
+  return CreateUninitialized(metadata.shape, host);
 }
 
 AsyncValueRef<StringHostTensor> StringHostTensor::MakeConstructedAsyncValueRef(
     const TensorMetadata& metadata, HostContext* host) {
   if (auto result = CreateUninitialized(metadata, host))
-    return host->MakeConstructedAsyncValueRef<StringHostTensor>(
-        std::move(result).getValue());
+    return tfrt::MakeConstructedAsyncValueRef<StringHostTensor>(
+        host, std::move(result).getValue());
 
   return {};
 }
@@ -53,11 +60,11 @@ AsyncValueRef<HostTensor> StringHostTensor::ConvertToHostTensor(
 
   // We need to make a copy of the data, because the source and result
   // buffers are logically independent.
-  auto result = host->MakeUnconstructedAsyncValueRef<StringHostTensor>();
+  auto result = MakeUnconstructedAsyncValueRef<StringHostTensor>(host);
 
   auto result_alloc = CreateUninitialized(metadata(), host);
   if (!result_alloc)
-    return host->MakeErrorAsyncValueRef("out of memory copying tensor");
+    return MakeErrorAsyncValueRef(host, "out of memory copying tensor");
 
   auto& result_tensor = result_alloc.getValue();
 

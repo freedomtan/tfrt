@@ -25,6 +25,7 @@
 
 #include <string>
 
+#include "tfrt/dtype/dtype.h"
 #include "tfrt/host_context/host_allocator.h"
 #include "tfrt/tensor/host_tensor.h"
 
@@ -32,12 +33,16 @@ namespace tfrt {
 
 // Represents a tensor of strings. The metadata of strings (pointer and size)
 // are stored contiguously in row major format with no padding or stride.
-class StringHostTensor final : public HostTensor {
+class StringHostTensor final : public HostTensor,
+                               public TensorTraits<StringHostTensor> {
  public:
   // Allocate a StringHostTensor with uninitialized data. Return None on
   // failure.
   static llvm::Optional<StringHostTensor> CreateUninitialized(
       const TensorMetadata& metadata, HostContext* host);
+
+  static llvm::Optional<StringHostTensor> CreateUninitialized(
+      const TensorShape& shape, HostContext* host);
 
   // Make an AsyncValueRef<StringHostTensor> with kConstructed state.
   static AsyncValueRef<StringHostTensor> MakeConstructedAsyncValueRef(
@@ -46,7 +51,13 @@ class StringHostTensor final : public HostTensor {
   StringHostTensor(const TensorMetadata& metadata,
                    HostArray<std::string> strings)
       : HostTensor(Subclass::StringHost, metadata),
-        strings_(std::move(strings)) {}
+        strings_(std::move(strings)) {
+    assert(metadata.dtype == DType(DType::String));
+  }
+
+  StringHostTensor(const TensorShape& shape, HostArray<std::string> strings)
+      : StringHostTensor{TensorMetadata{DType(DType::String), shape},
+                         std::move(strings)} {}
 
   StringHostTensor(StringHostTensor&& other);
   StringHostTensor& operator=(StringHostTensor&& other);
@@ -62,9 +73,8 @@ class StringHostTensor final : public HostTensor {
   AsyncValueRef<HostTensor> ConvertToHostTensor(
       HostContext* host, uint32_t allowed_formats) const override;
 
-  static bool classof(const Tensor* t) {
-    return t->subclass() == Subclass::StringHost;
-  }
+  // Tensor type for StringHostTensor.
+  static const char* name() { return "StringHost"; }
 
  private:
   // TODO(tfrt-devs): Consider making it reference counted.

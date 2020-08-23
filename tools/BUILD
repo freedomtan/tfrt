@@ -22,16 +22,9 @@ tfrt_cc_library(
     name = "opt_lib",
     visibility = [":friends"],
     deps = [
-        "@tf_runtime//:basic_kernels_opdefs_alwayslink",
-        "@tf_runtime//:core_runtime_alwayslink",
-        "@tf_runtime//:core_runtime_opdefs_alwayslink",
-        "@tf_runtime//:data_opdefs_alwayslink",
-        "@tf_runtime//:tensor_opdefs_alwayslink",
-        "@tf_runtime//:test_kernels_opdefs_alwayslink",
         "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:AllPassesAndDialectsNoRegistration",
-        "@llvm-project//mlir:MlirOptLib",
     ] + select({
+        # TODO(chky): Create a separate opt tool for gpu.
         "@tf_runtime//:gpu_enabled": [
             "@tf_runtime//backends/gpu:cuda_opdefs_alwayslink",
             "@tf_runtime//backends/gpu:cuda_test_opdefs_alwayslink",
@@ -42,10 +35,12 @@ tfrt_cc_library(
 
 tfrt_cc_binary(
     name = "tfrt_opt",
+    srcs = ["tfrt_opt/tfrt_opt.cc"],
     visibility = [":friends"],
     deps = [
         ":opt_lib",
-        "@llvm-project//mlir:MlirOptMain",
+        "@llvm-project//mlir:MlirOptLib",
+        "@tf_runtime//:init_tfrt_dialects",
     ],
 )
 
@@ -106,16 +101,16 @@ tfrt_cc_library(
     ],
 )
 
-tfrt_cc_binary(
-    name = "bef_executor",
+# Op/Kernel dependencies belong here rather than directly adding them in
+# tools:bef_executor. This ensures other bef_executor binaries can easily use
+# the same kernels as tools:bef_executor
+tfrt_cc_library(
+    name = "bef_executor_kernels",
     visibility = [":friends"],
     deps = [
         "@tf_runtime//:basic_kernels_alwayslink",
-        ":bef_executor_lib",
         "@tf_runtime//:core_runtime_alwayslink",
         "@tf_runtime//:data_alwayslink",
-        "@tf_runtime//:dtype",
-        "@tf_runtime//:simple_tracing_sink_alwayslink",
         "@tf_runtime//:tensor_alwayslink",
         "@tf_runtime//:test_kernels_alwayslink",
         "@tf_runtime//backends/common:eigen_kernels_alwayslink",
@@ -134,6 +129,17 @@ tfrt_cc_binary(
         ],
         "//conditions:default": [],
     }),
+)
+
+tfrt_cc_binary(
+    name = "bef_executor",
+    visibility = [":friends"],
+    deps = [
+        ":bef_executor_kernels",
+        ":bef_executor_lib",
+        "@tf_runtime//:dtype",
+        "@tf_runtime//:simple_tracing_sink_alwayslink",
+    ],
 )
 
 # bazel build -c opt --copt=-Os --define=disable_rtti_and_exceptions=true

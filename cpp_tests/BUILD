@@ -22,6 +22,28 @@ tfrt_cc_library(
 )
 
 tfrt_cc_test(
+    name = "host_context/host_buffer_test",
+    srcs = [
+        "host_context/host_buffer_test.cc",
+    ],
+    deps = [
+        "@com_google_googletest//:gtest_main",
+        "@tf_runtime//:hostcontext",
+        "@tf_runtime//:support",
+    ],
+)
+
+tfrt_cc_test(
+    name = "support/tensor_type_registration_test",
+    srcs = ["support/tensor_type_registration_test.cc"],
+    deps = [
+        ":common",
+        "@com_google_googletest//:gtest_main",
+        "@tf_runtime//:tensor",
+    ],
+)
+
+tfrt_cc_test(
     name = "host_context/host_context_test",
     srcs = [
         "host_context/host_context_test.cc",
@@ -226,8 +248,10 @@ tfrt_cc_test(
     ],
     deps = [
         ":common",
+        "@com_github_google_benchmark//:benchmark_main",
         "@com_google_googletest//:gtest_main",
         "@llvm-project//llvm:Support",
+        "@tf_runtime//:bef_attr_encoder",
         "@tf_runtime//:core_runtime",
         "@tf_runtime//:hostcontext",
         "@tf_runtime//:support",
@@ -296,5 +320,17 @@ tfrt_cc_test(
         "@llvm-project//llvm:Support",
         "@tf_runtime//:support",
         "@tf_runtime//:tracing",
+    ],
+)
+
+tfrt_cc_test(
+    name = "bef/bef_attr_encoder_test",
+    srcs = ["bef/bef_attr_encoder_test.cc"],
+    deps = [
+        "@com_google_googletest//:gtest_main",
+        "@llvm-project//llvm:Support",
+        "@tf_runtime//:bef_attr_encoder",
+        "@tf_runtime//:hostcontext",
+        "@tf_runtime//:support",
     ],
 )

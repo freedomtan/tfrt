@@ -42,13 +42,13 @@ using gpu::stream::EventSynchronize;
 using gpu::stream::OwningEvent;
 using gpu::stream::Pointer;
 
-AsyncValueRef<DenseHostTensor> CopyDenseGpuTensorToHost(
+AsyncValueRef<DenseHostTensor> ConvertDenseGpuTensorToDenseHostTensor(
     stream::CurrentContext current_context, stream::Stream stream,
     const DenseGpuTensor& gpu_tensor, HostContext* host) {
   llvm::Optional<DenseHostTensor> result_or_error =
       DenseHostTensor::CreateUninitialized(gpu_tensor.metadata(), host);
   if (!result_or_error) {
-    return host->MakeErrorAsyncValueRef("cannot allocate result tensor");
+    return MakeErrorAsyncValueRef(host, "cannot allocate result tensor");
   }
   DenseHostTensor result = std::move(*result_or_error);
 
@@ -60,26 +60,26 @@ AsyncValueRef<DenseHostTensor> CopyDenseGpuTensorToHost(
       MemcpyAsync(current_context, /*dst=*/memcpy_dst, /*src=*/memcpy_src,
                   size_in_bytes, stream);
   if (memcpy_error) {
-    return host->MakeErrorAsyncValueRef(
-        "failed to enqueue host to device memcpy: " +
-        toString(std::move(memcpy_error)));
+    return MakeErrorAsyncValueRef(host,
+                                  "failed to enqueue host to device memcpy: " +
+                                      toString(std::move(memcpy_error)));
   }
 
   llvm::Expected<OwningEvent> event_or_error =
       EventCreate(current_context, EventFlags::DISABLE_TIMING);
   if (!event_or_error) {
-    return host->MakeErrorAsyncValueRef(
-        "could not create event to wait for host to device memcpy: " +
-        toString(event_or_error.takeError()));
+    return MakeErrorAsyncValueRef(
+        host, "could not create event to wait for host to device memcpy: " +
+                  toString(event_or_error.takeError()));
   }
 
   OwningEvent event = std::move(*event_or_error);
 
   llvm::Error event_record_error = EventRecord(event.get(), stream);
   if (event_record_error) {
-    return host->MakeErrorAsyncValueRef(
-        "could not enqueue event to wait for host to device memcpy: " +
-        toString(std::move(event_record_error)));
+    return MakeErrorAsyncValueRef(
+        host, "could not enqueue event to wait for host to device memcpy: " +
+                  toString(std::move(event_record_error)));
   }
 
   return host->EnqueueBlockingWork(
@@ -93,28 +93,22 @@ AsyncValueRef<DenseHostTensor> CopyDenseGpuTensorToHost(
       });
 }
 
-static AsyncValueRef<Tensor> DenseGpuTensorToHostConversionFn(
+static AsyncValueRef<Tensor> DenseGpuTensorToDenseHostTensorConversionFn(
     const Tensor& tensor, const Device& src, const Device& dst,
-    TensorFormats allowed_formats, const ExecutionContext& exec_ctx) {
-  assert(tensor.subclass() == Tensor::Subclass::DenseGpu);
+    TensorType dst_tensor_type, const ExecutionContext& exec_ctx) {
+  assert(llvm::isa<DenseGpuTensor>(tensor));
+  assert(dst_tensor_type == DenseHostTensor::kTensorType);
   assert(src.type().name() == "gpu");
   assert(dst.type().name() == "cpu");
 
-  if (!allowed_formats.Contains(Tensor::Subclass::DenseHost))
-    return EmitErrorAsync(
-        exec_ctx,
-        StrCat(
-            "does not support converting DenseGpuTensor to allowed_formats: ",
-            allowed_formats));
-
   const GpuDevice& gpu_device = static_cast<const GpuDevice&>(src);
   const DenseGpuTensor& gpu_tensor = static_cast<const DenseGpuTensor&>(tensor);
-  return CopyDenseGpuTensorToHost(gpu_device.CreateContext(),
-                                  gpu_device.stream(), gpu_tensor,
-                                  exec_ctx.host());
+  return ConvertDenseGpuTensorToDenseHostTensor(gpu_device.CreateContext(),
+                                                gpu_device.stream(), gpu_tensor,
+                                                exec_ctx.host());
 }
 
-Expected<DenseGpuTensor> CopyDenseHostTensorToGpu(
+Expected<DenseGpuTensor> ConvertDenseHostTensorToDenseGpuTensor(
     stream::CurrentContext current_context, stream::Stream stream,
     GpuAllocator* allocator, const DenseHostTensor& tensor, HostContext* host) {
   size_t size_in_bytes = tensor.metadata().GetHostSizeInBytes();
@@ -153,40 +147,35 @@ Expected<DenseGpuTensor> CopyDenseHostTensorToGpu(
   return gpu::DenseGpuTensor(tensor.metadata(), std::move(buffer));
 }
 
-static AsyncValueRef<Tensor> DenseHostTensorToGpuConversionFn(
+static AsyncValueRef<Tensor> DenseHostTensorToDenseGpuTensorConversionFn(
     const Tensor& tensor, const Device& src, const Device& dst,
-    TensorFormats allowed_formats, const ExecutionContext& exec_ctx) {
-  assert(tensor.subclass() == Tensor::Subclass::DenseHost);
+    TensorType dst_tensor_type, const ExecutionContext& exec_ctx) {
+  assert(llvm::isa<DenseHostTensor>(tensor));
+  assert(dst_tensor_type == DenseGpuTensor::kTensorType);
   assert(src.type().name() == "cpu");
   assert(dst.type().name() == "gpu");
-
-  if (!allowed_formats.Contains(Tensor::Subclass::DenseGpu))
-    return EmitErrorAsync(
-        exec_ctx,
-        StrCat(
-            "does not support converting DenseHostTensor to allowed_formats: ",
-            allowed_formats));
 
   const GpuDevice& gpu_device = static_cast<const GpuDevice&>(dst);
   const DenseHostTensor& cpu_tensor =
       static_cast<const DenseHostTensor&>(tensor);
 
-  auto expected_gpu_tensor = CopyDenseHostTensorToGpu(
+  auto expected_gpu_tensor = ConvertDenseHostTensorToDenseGpuTensor(
       gpu_device.CreateContext(), gpu_device.stream(), gpu_device.allocator(),
       cpu_tensor, exec_ctx.host());
   if (!expected_gpu_tensor)
     return EmitErrorAsync(exec_ctx, expected_gpu_tensor.takeError());
-  return exec_ctx.host()->MakeAvailableAsyncValueRef<DenseGpuTensor>(
-      std::move(expected_gpu_tensor.get()));
+  return MakeAvailableAsyncValueRef<DenseGpuTensor>(
+      exec_ctx.host(), std::move(expected_gpu_tensor.get()));
 }
 
 void RegisterGpuTensorConversionFn(TensorConversionFnRegistry* registry) {
   registry->AddTensorConversionFn(
-      {Tensor::Subclass::DenseGpu, &GetStaticDeviceType("cpu")},
-      DenseGpuTensorToHostConversionFn);
+      {DenseHostTensor::kTensorType, DenseGpuTensor::kTensorType},
+      DenseHostTensorToDenseGpuTensorConversionFn);
+
   registry->AddTensorConversionFn(
-      {Tensor::Subclass::DenseHost, &GetStaticDeviceType("gpu")},
-      DenseHostTensorToGpuConversionFn);
+      {DenseGpuTensor::kTensorType, DenseHostTensor::kTensorType},
+      DenseGpuTensorToDenseHostTensorConversionFn);
 }
 
 }  // namespace gpu

@@ -84,7 +84,7 @@ static void TensorHandleToShape(Argument<TensorHandle> arg,
     }
     auto shape = metadata_ref.get().shape;
     value_ref->ForwardTo(
-        host->MakeAvailableAsyncValueRef<TensorShape>(std::move(shape)));
+        MakeAvailableAsyncValueRef<TensorShape>(host, std::move(shape)));
   });
 }
 
@@ -179,7 +179,7 @@ static llvm::Expected<TensorHandle> ConstDenseTensor(
 
   auto metadata = dht->metadata();
   auto tensor_ref =
-      host->MakeAvailableAsyncValueRef<DenseHostTensor>(std::move(*dht));
+      MakeAvailableAsyncValueRef<DenseHostTensor>(host, std::move(*dht));
   if (!tensor_ref)
     return MakeStringError("failed to allocate dense host tensor");
 
@@ -358,14 +358,14 @@ static tfrt::Expected<OpHandler *> GetOpHandler(
   return tfrt::MakeStringError("op_handler not found.");
 }
 
-static Chain RegisterOpHandlerChain(Argument<OpHandler *> root,
-                                    StringAttribute chain_name,
-                                    const ExecutionContext &exec_ctx) {
+static Chain RegisterOpHandler(Argument<OpHandler *> root,
+                               StringAttribute chain_name,
+                               const ExecutionContext &exec_ctx) {
   assert(root.get());
   auto *runtime = CoreRuntime::GetFromHostContext(exec_ctx.host());
   assert(runtime);
 
-  runtime->RegisterOpHandlerChain(chain_name, root.get());
+  runtime->RegisterOpHandler(chain_name, root.get());
   return Chain();
 }
 
@@ -534,13 +534,13 @@ static void CoreRtConditional(RemainingArguments args, RemainingResults results,
 // argument.
 static Expected<TensorHandle> TransferToDevice(
     const TensorHandle &src, StringAttribute device,
-    Attribute<uint32_t> formats, const ExecutionContext &exec_ctx) {
+    StringAttribute dst_tensor_type_name, const ExecutionContext &exec_ctx) {
   auto device_ref =
       exec_ctx.host()->GetDeviceManager()->GetDeviceRef<Device>(device);
-  TensorFormats allowed_formats{formats.get()};
   if (!device_ref)
     return MakeStringError("failed to find device with name: ", device);
-  return src.TransferTo(exec_ctx, std::move(device_ref), allowed_formats);
+  return src.TransferTo(exec_ctx, std::move(device_ref),
+                        GetStaticTensorType(dst_tensor_type_name));
 }
 
 //===----------------------------------------------------------------------===//
@@ -602,8 +602,8 @@ void RegisterCoreRuntimeKernels(KernelRegistry *registry) {
                       TFRT_KERNEL(ExecuteCoreRuntimeOp));
   registry->AddKernel("corert.make_composite_op", TFRT_KERNEL(MakeCompositeOp));
   registry->AddKernel("corert.get_op_handler", TFRT_KERNEL(GetOpHandler));
-  registry->AddKernel("corert.register_op_handler_chain",
-                      TFRT_KERNEL(RegisterOpHandlerChain));
+  registry->AddKernel("corert.register_op_handler",
+                      TFRT_KERNEL(RegisterOpHandler));
   registry->AddKernel("corert.const_dense_tensor",
                       TFRT_KERNEL(ConstDenseTensor));
   registry->AddKernel("corert.const_string_tensor",

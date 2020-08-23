@@ -262,6 +262,7 @@ tfrt_cc_library(
         "lib/tensor/tensor_serialize_utils.cc",
         "lib/tensor/tensor_shape.cc",
         "lib/tensor/tensor_shape_kernels.cc",
+        "lib/tensor/tensor_type_registration.cc",
     ],
     hdrs = [
         "include/tfrt/tensor/btf.h",
@@ -281,6 +282,7 @@ tfrt_cc_library(
         "include/tfrt/tensor/tensor_metadata.h",
         "include/tfrt/tensor/tensor_serialize_utils.h",
         "include/tfrt/tensor/tensor_shape.h",
+        "include/tfrt/tensor/tensor_type_registration.h",
     ],
     alwayslink_static_registration_src = "lib/tensor/static_registration.cc",
     visibility = [":friends"],
@@ -317,6 +319,21 @@ tfrt_cc_library(
 )
 
 tfrt_cc_library(
+    name = "bef_emitter",
+    srcs = [
+        "lib/bef_converter/bef_emitter.cc",
+    ],
+    hdrs = [
+        "include/tfrt/bef_converter/bef_emitter.h",
+    ],
+    visibility = [":friends"],
+    deps = [
+        ":support",
+        "@llvm-project//llvm:Support",
+    ],
+)
+
+tfrt_cc_library(
     name = "mlirtobef",
     srcs = [
         "lib/bef_converter/mlir_to_bef/mlir_to_bef.cc",
@@ -327,6 +344,7 @@ tfrt_cc_library(
     alwayslink_static_registration_src = "lib/bef_converter/mlir_to_bef/static_registration.cc",
     visibility = [":friends"],
     deps = [
+        ":bef_emitter",
         ":core_runtime_opdefs",
         ":support",
         "@llvm-project//llvm:Support",
@@ -349,6 +367,23 @@ tfrt_cc_library(
         "@llvm-project//mlir:Parser",
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:Translation",
+    ],
+)
+
+tfrt_cc_library(
+    name = "bef_attr_encoder",
+    srcs = [
+        "lib/bef_converter/bef_attr_encoder/bef_attr_encoder.cc",
+    ],
+    hdrs = [
+        "include/tfrt/bef_converter/bef_attr_encoder.h",
+    ],
+    visibility = [":friends"],
+    deps = [
+        ":bef_emitter",
+        ":hostcontext",
+        ":support",
+        "@llvm-project//llvm:Support",
     ],
 )
 
@@ -723,6 +758,8 @@ tfrt_cc_library(
         "lib/data/range_dataset.h",
         "lib/data/repeat_dataset.cc",
         "lib/data/repeat_dataset.h",
+        "lib/data/skip_dataset.cc",
+        "lib/data/skip_dataset.h",
         "lib/data/slice_dataset.h",
         "lib/data/tf_record_dataset.cc",
         "lib/data/tf_record_dataset.h",
@@ -738,6 +775,7 @@ tfrt_cc_library(
         ":io",
         ":support",
         ":tensor",
+        ":tracing",
         "@llvm-project//llvm:Support",
     ],
 )
@@ -862,4 +900,23 @@ bzl_library(
     name = "build_defs_bzl",
     srcs = ["build_defs.bzl"],
     visibility = ["//visibility:private"],
+)
+
+tfrt_cc_library(
+    name = "init_tfrt_dialects",
+    srcs = [
+        "lib/init_tfrt_dialects.cc",
+    ],
+    hdrs = [
+        "include/tfrt/init_tfrt_dialects.h",
+    ],
+    visibility = [":friends"],
+    deps = [
+        ":basic_kernels_opdefs",
+        ":core_runtime_opdefs",
+        ":data_opdefs",
+        ":tensor_opdefs",
+        ":test_kernels_opdefs",
+        "@llvm-project//mlir:IR",
+    ],
 )
